@@ -378,21 +378,30 @@ export default function PDFPage() {
                   </table>
 
                   {catPhotos.length > 0 && (
-                    <div style={{ padding: '8px', background: '#f8fafc', border: '1px solid #e5e7eb', borderTop: 'none' }}>
-                      <p style={{ fontSize: '9px', fontWeight: 'bold', color: '#374151', marginBottom: '6px' }}>
+                    <div style={{ padding: '10px 12px', background: '#f8fafc', border: '1px solid #e5e7eb', borderTop: 'none' }}>
+                      <p style={{ fontSize: '9px', fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}>
                         Registros Fotográficos — {cat}
                       </p>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
                         {catPhotos.map(item =>
                           item.fotos?.map((f, fi) => (
                             <div key={`${item.id}-${fi}`} style={{ textAlign: 'center' }}>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={f}
-                                alt={`Item ${item.numero}`}
-                                style={{ width: '110px', height: '82px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #e5e7eb', display: 'block' }}
-                              />
-                              <p style={{ fontSize: '7px', color: '#9ca3af', marginTop: '2px' }}>Item {item.numero}</p>
+                              {/*
+                                Use background-image + background-size:cover instead of <img objectFit=cover>.
+                                html2canvas correctly renders background-size:cover on divs, but ignores
+                                objectFit on <img> elements — which caused photos to be stretched.
+                              */}
+                              <div style={{
+                                width: '160px',
+                                height: '120px',
+                                backgroundImage: `url('${f}')`,
+                                backgroundSize: 'cover',
+                                backgroundPosition: 'center',
+                                backgroundRepeat: 'no-repeat',
+                                borderRadius: '5px',
+                                border: '1px solid #d1d5db',
+                              }} />
+                              <p style={{ fontSize: '8px', color: '#6b7280', marginTop: '3px', fontWeight: '500' }}>Item {item.numero}</p>
                             </div>
                           ))
                         )}
