@@ -53,26 +53,38 @@ export default function PDFPage() {
       wrapper.appendChild(clone)
       document.body.appendChild(wrapper)
 
-      // Let images load, then let layout settle
-      const imgs = Array.from(clone.querySelectorAll('img'))
-      await Promise.all(imgs.map(img =>
-        img.complete
-          ? Promise.resolve()
-          : new Promise<void>(res => { img.onload = () => res(); img.onerror = () => res(); setTimeout(res, 4000) })
-      ))
-      await new Promise(r => setTimeout(r, 200))
+      // Wait for all images to load before measuring or rendering
+      await Promise.all(
+        Array.from(clone.querySelectorAll('img')).map(img =>
+          img.complete ? Promise.resolve()
+            : new Promise<void>(res => {
+                img.onload  = () => res()
+                img.onerror = () => res()
+                setTimeout(res, 5000)
+              })
+        )
+      )
+      await new Promise(r => setTimeout(r, 300))
 
-      // ── 2. Record where each section ends (in canvas pixels) ─────────────
-      const sections = Array.from(
-        clone.querySelectorAll('[data-pdf-section]')
-      ) as HTMLElement[]
+      // ── 2. Measure positions (canvas px) BEFORE rendering ────────────────
       const wrapperTop = wrapper.getBoundingClientRect().top
-      const sectionEnds = sections.map(s => {
-        const r = s.getBoundingClientRect()
+
+      // Section end positions — used for clean breaks between major blocks
+      const sectionEnds = Array.from(clone.querySelectorAll('[data-pdf-section]')).map(el => {
+        const r = (el as HTMLElement).getBoundingClientRect()
         return Math.round((r.bottom - wrapperTop) * SCALE)
       })
 
-      // ── 3. Render to canvas ───────────────────────────────────────────────
+      // Table-row zones [top, bottom] — we must never cut within a row
+      const rowZones: [number, number][] = Array.from(clone.querySelectorAll('tr')).map(el => {
+        const r = (el as HTMLElement).getBoundingClientRect()
+        return [
+          Math.floor((r.top    - wrapperTop) * SCALE),
+          Math.ceil( (r.bottom - wrapperTop) * SCALE),
+        ]
+      })
+
+      // ── 3. Render full content to a single canvas ─────────────────────────
       const canvas = await html2canvas(clone, {
         scale: SCALE,
         useCORS: true,
@@ -83,55 +95,84 @@ export default function PDFPage() {
       })
       document.body.removeChild(wrapper)
 
-      // ── 4. Smart page splits ─────────────────────────────────────────────
-      // Rule: cut at the exact A4 page boundary.
-      // Exception: if a section ends within the last 22% of the page, snap
-      // to that boundary instead — this avoids a tiny orphan at the top of
-      // the next page.  We do NOT snap to boundaries earlier than that because
-      // it would leave large blank areas on the current page.
+      // ── 4. Row-aware page splitting ───────────────────────────────────────
+      //
+      // Goal: produce professional page breaks that never cut through a table
+      // row mid-text, and don't leave large blank areas at the bottom of pages.
+      //
+      // Algorithm per page:
+      //   a) Start with cutAt = exact A4 page boundary (fills the page).
+      //   b) If that boundary lands inside a <tr>, snap cutAt backwards to
+      //      just before that row's top edge.
+      //      Safety: if the row starts more than MAX_ROW_SNAP px before the
+      //      boundary (unusually tall cell), skip the snap to avoid blank space.
+      //   c) If no row snap was needed, also check whether a section boundary
+      //      falls within the last 20% of the page — if so, end the page there
+      //      for a cleaner visual break.
+      //
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const PAGE_W_MM = pdf.internal.pageSize.getWidth()   // 210
-      const PAGE_H_MM = pdf.internal.pageSize.getHeight()  // 297
-      const PAGE_H_PX = (PAGE_H_MM / PAGE_W_MM) * canvas.width  // keep as float
-      const SNAP_ZONE  = PAGE_H_PX * 0.22                        // last 22%
+      const PAGE_W_MM  = pdf.internal.pageSize.getWidth()
+      const PAGE_H_MM  = pdf.internal.pageSize.getHeight()
+      const PAGE_H_PX  = (PAGE_H_MM / PAGE_W_MM) * canvas.width  // float, for accuracy
+
+      // Max canvas pixels we'll snap backward to avoid a row cut.
+      // 240 canvas px @ scale 2 = 120 CSS px ≈ 32 mm — handles up to 3-line rows.
+      const MAX_ROW_SNAP = 240
 
       let pageStart = 0
       let pageNum   = 0
 
       while (pageStart < canvas.height) {
         const pageEnd = pageStart + PAGE_H_PX
-
         let cutAt: number
+
         if (pageEnd >= canvas.height) {
-          // Last page — use whatever is left
+          // ── Last page: use whatever remains ──────────────────────────────
           cutAt = canvas.height
+
         } else {
-          // Default: cut exactly at the A4 boundary
+          // ── Full page: start at exact boundary, then refine ──────────────
           cutAt = pageEnd
-          // Snap only if a section ends inside the final SNAP_ZONE
-          const snapStart = pageEnd - SNAP_ZONE
-          for (const end of sectionEnds) {
-            if (end > snapStart && end < pageEnd) {
-              cutAt = end   // pick the last section end in the snap zone
+
+          // (a) Snap backward if the boundary is inside a table row
+          for (const [rowStart, rowEnd] of rowZones) {
+            if (rowStart < pageEnd && rowEnd > pageEnd && rowStart > pageStart) {
+              const snapBack = pageEnd - rowStart
+              if (snapBack <= MAX_ROW_SNAP) {
+                cutAt = rowStart  // end this page just before the row
+              }
+              break  // at most one row straddles a page boundary
+            }
+          }
+
+          // (b) If no row snap was applied, try section-boundary snap
+          //     (last 20% of the page — avoids orphan row at top of next page)
+          if (cutAt === pageEnd) {
+            const snapZoneStart = pageEnd - PAGE_H_PX * 0.20
+            for (const sEnd of sectionEnds) {
+              if (sEnd > snapZoneStart && sEnd < pageEnd) {
+                cutAt = sEnd  // keep updating — take the LAST one in the zone
+              }
             }
           }
         }
 
-        // Crop this page slice from the full canvas
-        const sliceH = cutAt - pageStart
+        // Crop [pageStart, cutAt) from the full canvas into a page slice
+        const p0     = Math.round(pageStart)
+        const p1     = Math.round(cutAt)
+        const sliceH = p1 - p0
+
         const sliceCanvas = document.createElement('canvas')
-        sliceCanvas.width = canvas.width
+        sliceCanvas.width  = canvas.width
         sliceCanvas.height = sliceH
-        sliceCanvas.getContext('2d')!.drawImage(canvas, 0, -pageStart)
+        sliceCanvas.getContext('2d')!.drawImage(canvas, 0, -p0)
 
         const sliceHmm = (sliceH / canvas.width) * PAGE_W_MM
         if (pageNum > 0) pdf.addPage()
-        pdf.addImage(
-          sliceCanvas.toDataURL('image/jpeg', 0.92),
-          'JPEG', 0, 0, PAGE_W_MM, sliceHmm
-        )
+        pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.95), 'JPEG',
+          0, 0, PAGE_W_MM, sliceHmm)
 
-        pageStart = cutAt
+        pageStart = p1
         pageNum++
       }
 
