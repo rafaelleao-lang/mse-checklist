@@ -53,8 +53,14 @@ export default function PDFPage() {
       wrapper.appendChild(clone)
       document.body.appendChild(wrapper)
 
-      // Let layout settle before measuring / capturing
-      await new Promise(r => setTimeout(r, 150))
+      // Let images load, then let layout settle
+      const imgs = Array.from(clone.querySelectorAll('img'))
+      await Promise.all(imgs.map(img =>
+        img.complete
+          ? Promise.resolve()
+          : new Promise<void>(res => { img.onload = () => res(); img.onerror = () => res(); setTimeout(res, 4000) })
+      ))
+      await new Promise(r => setTimeout(r, 200))
 
       // ── 2. Record where each section ends (in canvas pixels) ─────────────
       const sections = Array.from(
@@ -77,24 +83,39 @@ export default function PDFPage() {
       })
       document.body.removeChild(wrapper)
 
-      // ── 4. Smart page splits at section boundaries ───────────────────────
+      // ── 4. Smart page splits ─────────────────────────────────────────────
+      // Rule: cut at the exact A4 page boundary.
+      // Exception: if a section ends within the last 22% of the page, snap
+      // to that boundary instead — this avoids a tiny orphan at the top of
+      // the next page.  We do NOT snap to boundaries earlier than that because
+      // it would leave large blank areas on the current page.
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
       const PAGE_W_MM = pdf.internal.pageSize.getWidth()   // 210
       const PAGE_H_MM = pdf.internal.pageSize.getHeight()  // 297
-      const PAGE_H_PX = Math.round((PAGE_H_MM / PAGE_W_MM) * canvas.width)
+      const PAGE_H_PX = (PAGE_H_MM / PAGE_W_MM) * canvas.width  // keep as float
+      const SNAP_ZONE  = PAGE_H_PX * 0.22                        // last 22%
 
       let pageStart = 0
-      let pageNum = 0
+      let pageNum   = 0
 
       while (pageStart < canvas.height) {
-        const idealEnd = pageStart + PAGE_H_PX
+        const pageEnd = pageStart + PAGE_H_PX
 
-        // Find the last section end that falls before the ideal cut point
-        let cutAt = Math.min(idealEnd, canvas.height)
-        for (const end of sectionEnds) {
-          if (end > pageStart + 40 && end <= idealEnd) cutAt = end
+        let cutAt: number
+        if (pageEnd >= canvas.height) {
+          // Last page — use whatever is left
+          cutAt = canvas.height
+        } else {
+          // Default: cut exactly at the A4 boundary
+          cutAt = pageEnd
+          // Snap only if a section ends inside the final SNAP_ZONE
+          const snapStart = pageEnd - SNAP_ZONE
+          for (const end of sectionEnds) {
+            if (end > snapStart && end < pageEnd) {
+              cutAt = end   // pick the last section end in the snap zone
+            }
+          }
         }
-        cutAt = Math.min(cutAt, canvas.height)
 
         // Crop this page slice from the full canvas
         const sliceH = cutAt - pageStart
