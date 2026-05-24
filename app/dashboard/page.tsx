@@ -198,7 +198,7 @@ const EQUIPMENT_CARDS: {
   label: string
   sublabel: string
   gradient: string
-  Icon: () => JSX.Element
+  Icon: () => React.ReactElement
 }[] = [
   {
     tipo: 'pemt',
