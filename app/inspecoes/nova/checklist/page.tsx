@@ -121,10 +121,25 @@ function ChecklistContent() {
     if (!file) return
     const reader = new FileReader()
     reader.onload = (ev) => {
-      const url = ev.target?.result as string
-      setItems(prev => prev.map(item =>
-        item.id === id ? { ...item, fotos: [...(item.fotos || []), url] } : item
-      ))
+      const raw = ev.target?.result as string
+      // Compress to max 1024px and JPEG 0.75 to keep sessionStorage within quota
+      const img = new window.Image()
+      img.onload = () => {
+        const MAX = 1024
+        let w = img.width, h = img.height
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round((h / w) * MAX); w = MAX }
+          else { w = Math.round((w / h) * MAX); h = MAX }
+        }
+        const cvs = document.createElement('canvas')
+        cvs.width = w; cvs.height = h
+        cvs.getContext('2d')!.drawImage(img, 0, 0, w, h)
+        const url = cvs.toDataURL('image/jpeg', 0.75)
+        setItems(prev => prev.map(item =>
+          item.id === id ? { ...item, fotos: [...(item.fotos || []), url] } : item
+        ))
+      }
+      img.src = raw
     }
     reader.readAsDataURL(file)
   }

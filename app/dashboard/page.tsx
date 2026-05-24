@@ -332,7 +332,10 @@ export default function HomePage() {
                 style={{ minHeight: 168 }}
               >
                 <div className="absolute inset-0" style={{ background: card.gradient }} />
+                {/* Subtle top highlight */}
                 <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 80% 15%, white 0%, transparent 55%)' }} />
+                {/* Dark overlay at bottom so text is always legible */}
+                <div className="absolute bottom-0 left-0 right-0" style={{ height: '55%', background: 'linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 100%)' }} />
 
                 <div className="relative p-4 flex flex-col h-full" style={{ minHeight: 168 }}>
                   {/* Machine SVG illustration */}
@@ -344,9 +347,15 @@ export default function HomePage() {
 
                   {/* Text */}
                   <div className="mt-1">
-                    <p className="text-white font-black text-[15px] leading-tight">{card.label}</p>
-                    <p className="text-white/70 text-[10px] mt-0.5 leading-tight">{card.sublabel}</p>
-                    <div className="mt-2 inline-flex items-center bg-white/20 rounded-lg px-2 py-1">
+                    <p
+                      className="text-white font-black text-[15px] leading-tight"
+                      style={{ textShadow: '0 1px 6px rgba(0,0,0,0.8)' }}
+                    >{card.label}</p>
+                    <p
+                      className="text-white/90 text-[10px] mt-0.5 leading-tight"
+                      style={{ textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}
+                    >{card.sublabel}</p>
+                    <div className="mt-2 inline-flex items-center bg-black/30 rounded-lg px-2 py-1">
                       <span className="text-white text-[10px] font-bold">Iniciar Inspeção →</span>
                     </div>
                   </div>
