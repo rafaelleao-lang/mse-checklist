@@ -160,8 +160,27 @@ function ChecklistContent() {
       equipamento_liberado: equipamentoLiberado ?? (naoConformes === 0),
     }
 
-    // Store in sessionStorage — no database needed, just fill + PDF
-    sessionStorage.setItem('mse_current_inspection', JSON.stringify(inspection))
+    // Tenta salvar com tudo (incluindo fotos), depois sem fotos se exceder quota
+    try {
+      sessionStorage.setItem('mse_current_inspection', JSON.stringify(inspection))
+    } catch {
+      try {
+        const semFotos = {
+          ...inspection,
+          itens: inspection.itens.map(item => ({ ...item, fotos: [] })),
+        }
+        sessionStorage.setItem('mse_current_inspection', JSON.stringify(semFotos))
+      } catch {
+        // Último recurso: sem fotos e sem assinatura
+        const minimal = {
+          ...inspection,
+          itens: inspection.itens.map(item => ({ ...item, fotos: [] })),
+          assinatura_inspetor: '',
+        }
+        sessionStorage.setItem('mse_current_inspection', JSON.stringify(minimal))
+      }
+    }
+
     setStep('resultado')
   }
 
